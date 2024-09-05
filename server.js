@@ -1,9 +1,7 @@
 const express = require('express');
 const { DynamoDBClient, ScanCommand } = require('@aws-sdk/client-dynamodb');  // AWS SDK v3
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const path = require('path'); // Import path module
-const axios = require('axios'); // Axios for making HTTP requests
 
 require('dotenv').config(); // Load environment variables from .env file
 
@@ -38,10 +36,6 @@ const client = new DynamoDBClient({
 // Define the table name
 const tableName = 'exgrip-combinations';
 
-// Shopify Admin API configuration
-const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
-const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-
 // Function to flatten DynamoDB response
 const flattenDynamoDBItem = (item) => {
   let flattened = {};
@@ -51,68 +45,6 @@ const flattenDynamoDBItem = (item) => {
   return flattened;
 };
 
-// Function to get product handle by SKU using Shopify Admin API
-const getProductHandleBySKU = async (sku) => {
-  // Skip invalid SKUs like "NA"
-  if (!sku || sku === "NA") {
-    console.log(`Skipping invalid SKU: ${sku}`);
-    return null;
-  }
-
-  const query = `
-    query getProductHandleBySKU($queryStr:String!) {
-      productVariant(query: $queryStr) {
-        edges {
-          node {
-            product {
-              handle
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const variables = { queryStr: `sku:${sku}` };
-
-  try {
-    console.log(`Sending query for SKU: ${sku}`);  // Log the SKU being queried
-    // console.log(`Query: ${query}`);
-    // console.log(`Variables: ${JSON.stringify(variables)}`);
-    // console.log(`Shop: ${SHOPIFY_SHOP}`);
-
-    const response = await axios({
-      url: `https://${SHOPIFY_SHOP}.myshopify.com/admin/api/2024-07/graphql.json`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': ACCESS_TOKEN,
-      },
-      data: JSON.stringify({ query, variables }),
-    });
-
-    // Check if response contains product handle
-    const productHandle = response.data.data?.productVariants?.edges?.[0]?.node?.product?.handle;
-
-    if (productHandle) {
-      console.log(`Found product handle: ${productHandle} for SKU: ${sku}`);
-      return productHandle;
-    } else {
-      console.log(`No product found for SKU: ${sku}`);
-      return null;
-    }
-
-  } catch (error) {
-    if (error.response) {
-      console.error(`Error fetching product handle for SKU: ${sku}`);
-      console.error('Error Response:', error.response.data);
-      console.error(`Status: ${error.response.status} | StatusText: ${error.response.statusText}`);
-    } else {
-      console.error('Error Message:', error.message);
-    }
-    return null;
-  }
-};
 
 // POST route for processing data ("/process-data/")
 app.post('/process-data', async (req, res) => {
@@ -183,15 +115,16 @@ app.post('/process-data', async (req, res) => {
       // Flatten each item in the result
       const flattenedItems = scanResult.Items.map(flattenDynamoDBItem);
       console.log(`Fetched ${flattenedItems.length} items from DynamoDB`);
+      console.log("Flattened items:", flattenedItems);
 
-      // For each item, fetch the product handle for each SKU
-      console.log("Fetching product handles...");
-      for (const item of flattenedItems) {
-        // Skip invalid SKUs like "NA"
-        item.productHandleMasterHolder = await getProductHandleBySKU(item.productSKUMasterHolder);
-        item.productHandleExtensionAdapter = await getProductHandleBySKU(item.productSKUExtensionAdapter);
-        item.productHandleClampingExtension = await getProductHandleBySKU(item.productSKUClampingExtension);
-      }
+      // // For each item, fetch the product handle for each SKU
+      // console.log("Fetching product handles...");
+      // for (const item of flattenedItems) {
+      //   // Skip invalid SKUs like "NA"
+      //   item.productHandleMasterHolder = await getProductHandleBySKU(item.productSKUMasterHolder);
+      //   item.productHandleExtensionAdapter = await getProductHandleBySKU(item.productSKUExtensionAdapter);
+      //   item.productHandleClampingExtension = await getProductHandleBySKU(item.productSKUClampingExtension);
+      // }
 
       result = result.concat(flattenedItems);
 
@@ -213,25 +146,25 @@ app.post('/process-data', async (req, res) => {
   
 // Parse the length range filter from the frontend
 const parseLengthRange = (length) => {
-    const attributeName = "#len";  // Alias for the reserved keyword 'length'
-  
-    if (length.startsWith('<='))
-      return { expression: `${attributeName} <= :length`, values: { ":length": { N: length.slice(2) } }, names: { "#len": "length" } };
-  
-    if (length.includes('-')) {
-      const [start, end] = length.split('-');
-      return {
-        expression: `${attributeName} BETWEEN :start AND :end`,
-        values: { ":start": { N: start }, ":end": { N: end } },
-        names: { "#len": "length" }
-      };
-    }
-  
-    if (length.startsWith('>'))
-      return { expression: `${attributeName} > :length`, values: { ":length": { N: length.slice(1) } }, names: { "#len": "length" } };
-  
-    return { expression: `${attributeName} = :length`, values: { ":length": { N: length } }, names: { "#len": "length" } };
-  };
+  const attributeName = "#len";  // Alias for the reserved keyword 'length'
+
+  if (length.startsWith('<='))
+    return { expression: `${attributeName} <= :length`, values: { ":length": { N: length.slice(2) } }, names: { "#len": "length" } };
+
+  if (length.includes('-')) {
+    const [start, end] = length.split('-');
+    return {
+      expression: `${attributeName} BETWEEN :start AND :end`,
+      values: { ":start": { N: start }, ":end": { N: end } },
+      names: { "#len": "length" }
+    };
+  }
+
+  if (length.startsWith('>'))
+    return { expression: `${attributeName} > :length`, values: { ":length": { N: length.slice(1) } }, names: { "#len": "length" } };
+
+  return { expression: `${attributeName} = :length`, values: { ":length": { N: length } }, names: { "#len": "length" } };
+};
   
 // Error handler middleware
 app.use((err, req, res, next) => {

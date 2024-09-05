@@ -1,5 +1,4 @@
 {
-
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.637.0",
     "@shopify/shopify-api": "^11.3.0",
