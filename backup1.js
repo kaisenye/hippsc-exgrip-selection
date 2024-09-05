@@ -158,6 +158,21 @@ app.post('/process-data', async (req, res) => {
       expressionAttributeValues[":thread"] = { S: item.thread };
     }
 
+    if (item.boreDiameter) {
+      filterExpression.push("boreDiameter = :boreDiameter");
+      expressionAttributeValues[":boreDiameter"] = { N: item.boreDiameter };
+    }
+
+    if (item.edgeRadius) {
+      filterExpression.push("edgeRadius = :edgeRadius");
+      expressionAttributeValues[":edgeRadius"] = { N: item.edgeRadius };
+    }
+
+    if (item.cuttingDiameter) {
+      filterExpression.push("cuttingDiameter = :cuttingDiameter");
+      expressionAttributeValues[":cuttingDiameter"] = { N: item.cuttingDiameter };
+    }
+
     // Join the filter expressions with AND
     const finalFilterExpression = filterExpression.join(' AND ');
 
