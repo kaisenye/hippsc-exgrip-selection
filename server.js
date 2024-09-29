@@ -1,9 +1,15 @@
 const express = require('express');
-const { DynamoDBClient, ScanCommand } = require('@aws-sdk/client-dynamodb');  // AWS SDK v3
 const cors = require('cors');
 const path = require('path'); // Import path module
 
-require('dotenv').config(); // Load environment variables from .env file
+const client = require('./aws/dbClient');  // Import the DynamoDB client
+const { ScanCommand } = require('@aws-sdk/client-dynamodb');  // AWS SDK v3
+const { flattenDynamoDBItem, parseLengthRange } = require('./utils/dynamoHelper');
+const { checkFileExistsInS3, getPresignedUrl } = require('./aws/s3Client');
+const { constructS3FilePaths } = require('./utils/s3Helper');
+
+// Load environment variables from .env file
+require('dotenv').config(); 
 
 // Set up the Express app
 const app = express();
@@ -23,28 +29,6 @@ app.use(cors({
 
 // Middleware to parse JSON request body
 app.use(express.json());
-
-// AWS SDK v3 configuration for DynamoDB
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION || 'us-east-2',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-  }
-});
-
-// Define the table name
-const tableName = 'exgrip-combinations';
-
-// Function to flatten DynamoDB response
-const flattenDynamoDBItem = (item) => {
-  let flattened = {};
-  for (const key in item) {
-    flattened[key] = item[key].S || item[key].N || item[key].BOOL || item[key].NULL || item[key].M || item[key].L;
-  }
-  return flattened;
-};
-
 
 // POST route for processing data ("/process-data/")
 app.post('/process-data', async (req, res) => {
@@ -103,13 +87,12 @@ app.post('/process-data', async (req, res) => {
       expressionAttributeValues[":cuttingDiameter"] = { S: item.cuttingDiameter };
     }
 
-
     // Join the filter expressions with AND
     const finalFilterExpression = filterExpression.join(' AND ');
 
-    // Perform the scan operation
+    // Perform the DB scan operation
     const params = {
-      TableName: tableName,
+      TableName: process.env.AWS_DB_TABLE_NAME,
       FilterExpression: finalFilterExpression,
       ExpressionAttributeValues: expressionAttributeValues,
       ExpressionAttributeNames: {
@@ -117,7 +100,7 @@ app.post('/process-data', async (req, res) => {
       }
     };
 
-    let result = [];
+    let result = [];  // Temp array to store results
     let lastEvaluatedKey = null;
 
     do {
@@ -133,15 +116,6 @@ app.post('/process-data', async (req, res) => {
       console.log(`Fetched ${flattenedItems.length} items from DynamoDB`);
       console.log("Flattened items:", flattenedItems);
 
-      // // For each item, fetch the product handle for each SKU
-      // console.log("Fetching product handles...");
-      // for (const item of flattenedItems) {
-      //   // Skip invalid SKUs like "NA"
-      //   item.productHandleMasterHolder = await getProductHandleBySKU(item.productSKUMasterHolder);
-      //   item.productHandleExtensionAdapter = await getProductHandleBySKU(item.productSKUExtensionAdapter);
-      //   item.productHandleClampingExtension = await getProductHandleBySKU(item.productSKUClampingExtension);
-      // }
-
       result = result.concat(flattenedItems);
 
       lastEvaluatedKey = scanResult.LastEvaluatedKey;
@@ -152,6 +126,43 @@ app.post('/process-data', async (req, res) => {
       return res.status(404).json({ message: "No items found matching the criteria." });
     }
 
+    // Loop through each result and add the S3 file path
+    const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
+    for (let i = 0; i < result.length; i++) {
+      const currentItem = result[i];
+
+      // Construct the S3 file paths for both STL and STEP
+      const { stlFilePath, stepFilePath } = constructS3FilePaths(
+        currentItem.spindle,
+        currentItem.productSKUMasterHolder,
+        currentItem.productSKUExtensionAdapter,
+        currentItem.productSKUClampingExtension
+      );
+
+      // Check if the STL file exists
+      const stlExists = await checkFileExistsInS3(BUCKET_NAME, stlFilePath);
+      if (stlExists) {
+        // If private, generate a pre-signed URL
+        currentItem.stlFilePath = await getPresignedUrl(BUCKET_NAME, stlFilePath);
+      } else {
+        currentItem.stlFilePath = 'STL file not found';
+      }
+
+      // Check if the STEP file exists
+      const stepExists = await checkFileExistsInS3(BUCKET_NAME, stepFilePath);
+      if (stepExists) {
+        // If private, generate a pre-signed URL
+        currentItem.stepFilePath = await getPresignedUrl(BUCKET_NAME, stepFilePath);
+      } else {
+        currentItem.stepFilePath = 'STEP file not found';
+      }
+    }
+
+    if (result.length === 0) {
+      return res.status(404).json({ message: "No items found matching the criteria in S3." });
+    }
+
+    // return the final result
     return res.json(result);
 
   } catch (error) {
@@ -160,28 +171,6 @@ app.post('/process-data', async (req, res) => {
   }
 });
   
-// Parse the length range filter from the frontend
-const parseLengthRange = (length) => {
-  const attributeName = "#len";  // Alias for the reserved keyword 'length'
-
-  if (length.startsWith('<='))
-    return { expression: `${attributeName} <= :length`, values: { ":length": { N: length.slice(2) } }, names: { "#len": "length" } };
-
-  if (length.includes('-')) {
-    const [start, end] = length.split('-');
-    return {
-      expression: `${attributeName} BETWEEN :start AND :end`,
-      values: { ":start": { N: start }, ":end": { N: end } },
-      names: { "#len": "length" }
-    };
-  }
-
-  if (length.startsWith('>'))
-    return { expression: `${attributeName} > :length`, values: { ":length": { N: length.slice(1) } }, names: { "#len": "length" } };
-
-  return { expression: `${attributeName} = :length`, values: { ":length": { N: length } }, names: { "#len": "length" } };
-};
-  
 // Error handler middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -189,9 +178,9 @@ app.use((err, req, res, next) => {
 });
 
 // Start the server locally
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`Server is running on port ${PORT}`);
+// });
 
 module.exports = app;

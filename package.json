@@ -1,6 +1,8 @@
 {
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.637.0",
+    "@aws-sdk/client-s3": "^3.658.1",
+    "@aws-sdk/s3-request-presigner": "^3.658.1",
     "@shopify/shopify-api": "^11.3.0",
     "aws-sdk": "^2.1688.0",
     "axios": "^1.7.7",
