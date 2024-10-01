@@ -3,10 +3,8 @@ const cors = require('cors');
 const path = require('path'); // Import path module
 
 const client = require('./aws/dbClient');  // Import the DynamoDB client
-const { ScanCommand } = require('@aws-sdk/client-dynamodb');  // AWS SDK v3
-const { flattenDynamoDBItem, parseLengthRange } = require('./utils/dynamoHelper');
+const { parseLengthRange, performDynamoDBScan } = require('./utils/dynamoHelper');
 const { checkFileExistsInS3, getPresignedUrl } = require('./aws/s3Client');
-const { constructS3FilePaths } = require('./utils/s3Helper');
 
 // Load environment variables from .env file
 require('dotenv').config(); 
@@ -100,27 +98,7 @@ app.post('/process-data', async (req, res) => {
       }
     };
 
-    let result = [];  // Temp array to store results
-    let lastEvaluatedKey = null;
-
-    do {
-      if (lastEvaluatedKey) {
-        params.ExclusiveStartKey = lastEvaluatedKey;
-      }
-
-      const scanCommand = new ScanCommand(params);
-      const scanResult = await client.send(scanCommand);
-      
-      // Flatten each item in the result
-      const flattenedItems = scanResult.Items.map(flattenDynamoDBItem);
-      console.log(`Fetched ${flattenedItems.length} items from DynamoDB`);
-      console.log("Flattened items:", flattenedItems);
-
-      result = result.concat(flattenedItems);
-
-      lastEvaluatedKey = scanResult.LastEvaluatedKey;
-
-    } while (lastEvaluatedKey);
+    const result = await performDynamoDBScan(params); // Use await here
 
     if (result.length === 0) {
       return res.status(404).json({ message: "No items found matching the criteria." });
@@ -128,35 +106,26 @@ app.post('/process-data', async (req, res) => {
 
     // Loop through each result and add the S3 file path
     const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
-    for (let i = 0; i < result.length; i++) {
-      const currentItem = result[i];
-
-      // Construct the S3 file paths for both STL and STEP
-      const { stlFilePath, stepFilePath } = constructS3FilePaths(
-        currentItem.spindle,
-        currentItem.productSKUMasterHolder,
-        currentItem.productSKUExtensionAdapter,
-        currentItem.productSKUClampingExtension
-      );
+    await Promise.all(result.map(async (currentItem) => {
+      const stlPath = "3d-files/" + currentItem.spindle + "/" + currentItem.id + ".STL";
+      const stepPath = "3d-files/" + currentItem.spindle + "/" + currentItem.id + ".step";
 
       // Check if the STL file exists
-      const stlExists = await checkFileExistsInS3(BUCKET_NAME, stlFilePath);
-      if (stlExists) {
-        // If private, generate a pre-signed URL
-        currentItem.stlFilePath = await getPresignedUrl(BUCKET_NAME, stlFilePath);
-      } else {
-        currentItem.stlFilePath = 'STL file not found';
-      }
-
-      // Check if the STEP file exists
-      const stepExists = await checkFileExistsInS3(BUCKET_NAME, stepFilePath);
-      if (stepExists) {
-        // If private, generate a pre-signed URL
-        currentItem.stepFilePath = await getPresignedUrl(BUCKET_NAME, stepFilePath);
-      } else {
-        currentItem.stepFilePath = 'STEP file not found';
-      }
-    }
+      const [stlExists, stepExists] = await Promise.all([
+          checkFileExistsInS3(BUCKET_NAME, stlPath),
+          checkFileExistsInS3(BUCKET_NAME, stepPath)
+      ]);
+  
+      // If STL exists, generate presigned URL
+      currentItem.stlFilePath = stlExists
+          ? await getPresignedUrl(BUCKET_NAME, stlPath)
+          : 'NA';
+  
+      // If STEP exists, generate presigned URL
+      currentItem.stepFilePath = stepExists
+          ? await getPresignedUrl(BUCKET_NAME, stepPath)
+          : 'NA';
+    }));
 
     if (result.length === 0) {
       return res.status(404).json({ message: "No items found matching the criteria in S3." });
@@ -178,9 +147,9 @@ app.use((err, req, res, next) => {
 });
 
 // Start the server locally
-// const PORT = process.env.PORT || 3000;
-// app.listen(PORT, () => {
-//   console.log(`Server is running on port ${PORT}`);
-// });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
 
 module.exports = app;
