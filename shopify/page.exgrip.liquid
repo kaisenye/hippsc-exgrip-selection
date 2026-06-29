@@ -253,6 +253,7 @@
       let selections = {};   // accumulated picks { spindle, length, toolType, <subspec> }
       let stepIndex = 0;     // 0..3
       let stepOrder = [];    // resolved field order for the current run
+      let renderToken = 0;   // guards against stale async renders (rapid back/forward)
 
       // resolve the ordered list of fields, including the runtime sub-spec
       function resolveStepOrder() {
@@ -316,6 +317,7 @@
 
       // Render the current step ------------------------------------------------
       async function renderStep() {
+        const myToken = ++renderToken;        // invalidate any in-flight render
         el.step.style.display = '';          // restore if returning from completed state
         document.getElementById('exgrip-done-empty').style.display = 'none';
         stepOrder = resolveStepOrder();
@@ -344,6 +346,7 @@
 
         try {
           const values = await fetchOptions(meta.field);
+          if (myToken !== renderToken) return; // a newer render superseded this one
           el.loading.style.display = 'none';
           el.loading.innerHTML = '';
 
@@ -361,6 +364,7 @@
             el.options.appendChild(btn);
           });
         } catch (err) {
+          if (myToken !== renderToken) return;
           console.error(err);
           el.loading.style.display = 'none';
           el.loading.innerHTML = '';
@@ -408,12 +412,19 @@
         }
       }
 
+      // Jump to a step, clearing its answer and anything downstream so the step
+      // re-fetches its full option set (not pre-filtered by the old pick).
+      function goToStep(index) {
+        stepIndex = index;
+        const order = resolveStepOrder();
+        order.slice(index).forEach((f) => { delete selections[f]; });
+        renderStep();
+      }
+
       // Back -------------------------------------------------------------------
       el.back.addEventListener('click', () => {
         if (stepIndex === 0) return;
-        stepIndex -= 1;
-        // drop the answer we're returning to so it can be re-picked freely
-        renderStep();
+        goToStep(stepIndex - 1);
       });
 
       // Start over -------------------------------------------------------------
@@ -441,7 +452,7 @@
           chip.className = 'exgrip-chip';
           chip.innerHTML = `${labelFor(field)}: <b>${displayValue(field, value)}</b>`;
           chip.title = 'Edit';
-          chip.addEventListener('click', () => { stepIndex = i; renderStep(); });
+          chip.addEventListener('click', () => goToStep(i));
           el.summary.appendChild(chip);
         });
       }
