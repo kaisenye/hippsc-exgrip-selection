@@ -16,7 +16,7 @@
       }
 
       #exgrip-console {
-        max-width: 760px;
+        max-width: 1100px;
         margin: 4rem auto 8rem auto;
         padding: 0 24px;
         color: var(--ink);
@@ -28,9 +28,9 @@
         margin-bottom: 56px;
       }
       .exgrip-progress-bar {
-        height: 2px;
+        height: 6px;
         background: var(--line);
-        border-radius: 2px;
+        border-radius: 6px;
         overflow: hidden;
       }
       .exgrip-progress-fill {
@@ -163,10 +163,7 @@
   <body>
     <div id="exgrip-console">
       <div class="modular-product-title" style="margin-bottom:40px;">
-        <h1 style="font-size:2rem;font-weight:600;margin:0 0 8px 0;">EXGRIP Selection Console</h1>
-        <p style="color:var(--muted);margin:0;font-size:15px;">
-          Answer a few questions — we’ll show only the configurations we can build.
-        </p>
+        <h1 style="font-size:1.1rem;font-weight:600;margin:0;letter-spacing:0.01em;">EXGRIP Selection Console</h1>
       </div>
 
       <!-- progress -->
@@ -190,6 +187,11 @@
         <div class="exgrip-empty" id="exgrip-empty" style="display:none;">
           No products found matching your criteria. Contact our product specialist for a custom solution :)
         </div>
+      </div>
+
+      <!-- shown when the flow is complete but no products matched -->
+      <div class="exgrip-empty" id="exgrip-done-empty" style="display:none;">
+        No products found matching your criteria. Contact our product specialist for a custom solution :)
       </div>
 
       <!-- navigation -->
@@ -290,6 +292,8 @@
 
       // Render the current step ------------------------------------------------
       async function renderStep() {
+        el.step.style.display = '';          // restore if returning from completed state
+        document.getElementById('exgrip-done-empty').style.display = 'none';
         stepOrder = resolveStepOrder();
         const meta = stepMeta(stepIndex);
 
@@ -389,11 +393,13 @@
       }
 
       // Summary chips ----------------------------------------------------------
-      function renderSummary() {
+      // showAll=true (completed state) renders every selection; otherwise only
+      // the answers before the current step.
+      function renderSummary(showAll) {
         el.summary.innerHTML = '';
         const order = resolveStepOrder();
         order.forEach((field, i) => {
-          if (i >= stepIndex) return;
+          if (!showAll && i >= stepIndex) return;
           const value = selections[field];
           if (value === undefined) return;
           const chip = document.createElement('button');
@@ -415,7 +421,15 @@
 
       // Final search -> existing /process-data + product grid ------------------
       function runSearch() {
+        // Collapse the question/options; show only the chosen-options summary.
         el.progFill.style.width = '100%';
+        el.progLabel.textContent = 'Complete';
+        el.progCount.textContent = '';
+        el.step.style.display = 'none';
+        el.back.disabled = false;
+        el.restart.style.display = 'inline';
+        renderSummary(true); // show all selections, including the final pick
+
         document.getElementById('product-grid-container').innerHTML = '';
         document.getElementById('loading').style.display = 'block';
         document.getElementById('product-grid-container').scrollIntoView({ behavior: 'smooth' });
@@ -425,7 +439,7 @@
           if (response && response.length > 0) {
             renderProducts(response);
           } else {
-            el.empty.style.display = 'block';
+            document.getElementById('exgrip-done-empty').style.display = 'block';
           }
         });
       }
