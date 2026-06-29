@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path'); // Import path module
 
 const client = require('./aws/dbClient');  // Import the DynamoDB client
-const { parseLengthRange, performDynamoDBScan } = require('./utils/dynamoHelper');
+const { parseLengthRange, performDynamoDBScan, bucketizeLengths, buildFilterFromSelections } = require('./utils/dynamoHelper');
 const { checkFileExistsInS3, getPresignedUrl } = require('./aws/s3Client');
 
 // Load environment variables from .env file
@@ -140,6 +140,66 @@ app.post('/process-data', async (req, res) => {
   }
 });
   
+// POST route returning the distinct available values for the NEXT field,
+// given the choices made so far. Powers the progressive (Typeform) UI.
+const ALLOWED_NEXT_FIELDS = [
+  'spindle', 'length', 'toolType',
+  'boreDiameter', 'thread', 'cuttingDiameter', 'edgeRadius'
+];
+
+app.post('/available-options', async (req, res) => {
+  try {
+    const { selections = {}, nextField } = req.body || {};
+
+    if (!ALLOWED_NEXT_FIELDS.includes(nextField)) {
+      return res.status(400).json({ error: `Invalid nextField: ${nextField}` });
+    }
+
+    const { filterExpression, expressionAttributeValues, usesLength } =
+      buildFilterFromSelections(selections);
+
+    const params = { TableName: process.env.AWS_DB_TABLE_NAME };
+
+    // Only attach filter pieces when there is an actual filter (empty selections
+    // on the first step must NOT pass an empty-string FilterExpression).
+    if (filterExpression) {
+      params.FilterExpression = filterExpression;
+      params.ExpressionAttributeValues = expressionAttributeValues;
+    }
+
+    // 'length' is a reserved word -> alias to #len. Only declare #len when it is
+    // actually referenced: either the filter uses length, or we project length.
+    const projectingLength = nextField === 'length';
+    if (usesLength || projectingLength) {
+      params.ExpressionAttributeNames = { '#len': 'length' };
+    }
+
+    // Project only the column we need to keep the scan payload small.
+    params.ProjectionExpression = projectingLength ? '#len' : nextField;
+
+    const items = await performDynamoDBScan(params);
+
+    let values;
+    if (nextField === 'length') {
+      values = bucketizeLengths(items.map((i) => i.length));
+    } else {
+      const distinct = [...new Set(
+        items.map((i) => i[nextField]).filter((v) => v !== undefined && v !== null && v !== '')
+      )];
+      // numeric sub-specs sort numerically; spindle/toolType stay insertion order
+      const numeric = distinct.every((v) => !Number.isNaN(Number(v)));
+      values = numeric
+        ? distinct.sort((a, b) => Number(a) - Number(b))
+        : distinct;
+    }
+
+    return res.json({ field: nextField, values });
+  } catch (error) {
+    console.error('Error fetching available options:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 // Error handler middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);

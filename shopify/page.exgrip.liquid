@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EXGRIP Selection Console</title>
+    <style>
+      /* ── Palette: monochrome + single brand accent ───────────────────────── */
+      :root {
+        --ink: #141414;
+        --muted: #8a8a8a;
+        --line: #e4e4e4;
+        --line-strong: #cccccc;
+        --bg: #ffffff;
+        --accent: #87cc04; /* used ONLY on the selected/active state */
+      }
+
+      #exgrip-console {
+        max-width: 760px;
+        margin: 4rem auto 8rem auto;
+        padding: 0 24px;
+        color: var(--ink);
+        font-family: inherit;
+      }
+
+      /* progress */
+      .exgrip-progress {
+        margin-bottom: 56px;
+      }
+      .exgrip-progress-bar {
+        height: 2px;
+        background: var(--line);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .exgrip-progress-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--ink);
+        transition: width 0.35s ease;
+      }
+      .exgrip-progress-meta {
+        margin-top: 12px;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+      }
+
+      /* step */
+      .exgrip-step {
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+      .exgrip-step.is-active {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .exgrip-question {
+        font-size: 30px;
+        font-weight: 600;
+        line-height: 1.25;
+        margin: 0 0 8px 0;
+      }
+      .exgrip-hint {
+        font-size: 15px;
+        color: var(--muted);
+        margin: 0 0 32px 0;
+      }
+
+      /* options */
+      .exgrip-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .exgrip-option {
+        padding: 14px 22px;
+        background: var(--bg);
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        color: var(--ink);
+        transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+      }
+      .exgrip-option:hover {
+        border-color: var(--ink);
+      }
+      .exgrip-option.is-selected {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+
+      /* navigation */
+      .exgrip-nav {
+        margin-top: 44px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .exgrip-back {
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 15px;
+        cursor: pointer;
+        padding: 8px 0;
+      }
+      .exgrip-back:hover { color: var(--ink); }
+      .exgrip-back[disabled] { opacity: 0; pointer-events: none; }
+
+      .exgrip-restart {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 14px;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      .exgrip-restart:hover { color: var(--ink); }
+
+      /* states */
+      .exgrip-loading,
+      .exgrip-empty {
+        font-size: 15px;
+        color: var(--muted);
+        padding: 8px 0;
+      }
+      .exgrip-empty {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 20px;
+        color: var(--ink);
+        background: #fafafa;
+      }
+
+      /* summary of prior answers */
+      .exgrip-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 28px;
+        min-height: 1px;
+      }
+      .exgrip-chip {
+        font-size: 13px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 5px 12px;
+        cursor: pointer;
+      }
+      .exgrip-chip:hover { border-color: var(--ink); color: var(--ink); }
+      .exgrip-chip b { color: var(--ink); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div id="exgrip-console">
+      <div class="modular-product-title" style="margin-bottom:40px;">
+        <h1 style="font-size:2rem;font-weight:600;margin:0 0 8px 0;">EXGRIP Selection Console</h1>
+        <p style="color:var(--muted);margin:0;font-size:15px;">
+          Answer a few questions — we’ll show only the configurations we can build.
+        </p>
+      </div>
+
+      <!-- progress -->
+      <div class="exgrip-progress">
+        <div class="exgrip-progress-bar"><div class="exgrip-progress-fill" id="exgrip-progress-fill"></div></div>
+        <div class="exgrip-progress-meta">
+          <span id="exgrip-progress-label">Step 1</span>
+          <span id="exgrip-progress-count"></span>
+        </div>
+      </div>
+
+      <!-- prior answers as editable chips -->
+      <div class="exgrip-summary" id="exgrip-summary"></div>
+
+      <!-- single active step -->
+      <div class="exgrip-step is-active" id="exgrip-step">
+        <h2 class="exgrip-question" id="exgrip-question">Loading…</h2>
+        <p class="exgrip-hint" id="exgrip-hint"></p>
+        <div class="exgrip-options" id="exgrip-options"></div>
+        <div class="exgrip-loading" id="exgrip-loading" style="display:none;">Loading options…</div>
+        <div class="exgrip-empty" id="exgrip-empty" style="display:none;">
+          No products found matching your criteria. Contact our product specialist for a custom solution :)
+        </div>
+      </div>
+
+      <!-- navigation -->
+      <div class="exgrip-nav">
+        <button class="exgrip-back" id="exgrip-back" disabled>← Back</button>
+        <button class="exgrip-restart" id="exgrip-restart" style="display:none;">Start over</button>
+      </div>
+
+      {% section 'exgrip-product-display' %}
+    </div>
+
+    <!--
+      SCRIPT ==============================================================================================================================================================================================
+    -->
+    <script>
+      // API base ---------------------------------------------------------------
+      const API_BASE = 'https://hippsc-exgrip-selection.vercel.app';
+
+      // toolType -> sub-spec field + display label
+      const SUBSPEC = {
+        'Standard End Mills':              { field: 'boreDiameter',    label: 'Bore Diameter',    unit: 'mm' },
+        'Exchangeable Head Mills':         { field: 'thread',          label: 'Thread',           unit: 'M', prefix: 'M' },
+        'EXGRIP Ball Nose End Mills':      { field: 'cuttingDiameter', label: 'Cutting Diameter', unit: 'mm' },
+        'EXGRIP Tapered Ball Nose End Mills': { field: 'edgeRadius',   label: 'Edge Radius',      unit: 'mm' },
+      };
+
+      // Static step definitions. The 4th (sub-spec) is resolved at runtime from toolType.
+      const BASE_STEPS = [
+        { field: 'spindle',  question: 'Which master holder (spindle)?', hint: 'Select your machine spindle interface.' },
+        { field: 'length',   question: 'What overall length?',           hint: 'Tool holder length in millimetres.' },
+        { field: 'toolType', question: 'Which tool type?',               hint: 'Pick the cutting tool family.' },
+      ];
+
+      // Runtime state ----------------------------------------------------------
+      let selections = {};   // accumulated picks { spindle, length, toolType, <subspec> }
+      let stepIndex = 0;     // 0..3
+      let stepOrder = [];    // resolved field order for the current run
+
+      // resolve the ordered list of fields, including the runtime sub-spec
+      function resolveStepOrder() {
+        const order = BASE_STEPS.map((s) => s.field);
+        if (selections.toolType && SUBSPEC[selections.toolType]) {
+          order.push(SUBSPEC[selections.toolType].field);
+        }
+        return order;
+      }
+
+      // step meta for a given index
+      function stepMeta(index) {
+        if (index < BASE_STEPS.length) return BASE_STEPS[index];
+        const sub = SUBSPEC[selections.toolType];
+        return {
+          field: sub.field,
+          question: `Which ${sub.label.toLowerCase()}?`,
+          hint: `Available ${sub.label.toLowerCase()} for ${selections.toolType}.`,
+        };
+      }
+
+      // total steps (3 until toolType chosen, then 4)
+      function totalSteps() {
+        return selections.toolType ? 4 : 4; // always 4 once flow defined; spindle/length/toolType/subspec
+      }
+
+      // pretty value for display (length is already a label; thread shows M-prefix)
+      function displayValue(field, value) {
+        if (field === 'thread') return 'M' + value;
+        if (field === 'length') return value + ' mm';
+        return value;
+      }
+
+      // DOM refs ---------------------------------------------------------------
+      const el = {
+        question: document.getElementById('exgrip-question'),
+        hint: document.getElementById('exgrip-hint'),
+        options: document.getElementById('exgrip-options'),
+        loading: document.getElementById('exgrip-loading'),
+        empty: document.getElementById('exgrip-empty'),
+        step: document.getElementById('exgrip-step'),
+        back: document.getElementById('exgrip-back'),
+        restart: document.getElementById('exgrip-restart'),
+        summary: document.getElementById('exgrip-summary'),
+        progFill: document.getElementById('exgrip-progress-fill'),
+        progLabel: document.getElementById('exgrip-progress-label'),
+        progCount: document.getElementById('exgrip-progress-count'),
+      };
+
+      // Fetch available options for a field given current selections -----------
+      async function fetchOptions(nextField) {
+        const res = await fetch(`${API_BASE}/available-options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selections, nextField }),
+        });
+        if (!res.ok) throw new Error(`available-options failed: ${res.status}`);
+        const data = await res.json();
+        return data.values || [];
+      }
+
+      // Render the current step ------------------------------------------------
+      async function renderStep() {
+        stepOrder = resolveStepOrder();
+        const meta = stepMeta(stepIndex);
+
+        // progress
+        const total = totalSteps();
+        el.progFill.style.width = `${(stepIndex / total) * 100}%`;
+        el.progLabel.textContent = `Step ${stepIndex + 1}`;
+        el.progCount.textContent = `${stepIndex + 1} / ${total}`;
+
+        // summary chips (prior answers, click to edit)
+        renderSummary();
+
+        // back/restart visibility
+        el.back.disabled = stepIndex === 0;
+        el.restart.style.display = stepIndex > 0 ? 'inline' : 'none';
+
+        // question
+        el.question.textContent = meta.question;
+        el.hint.textContent = meta.hint;
+        el.options.innerHTML = '';
+        el.empty.style.display = 'none';
+        el.loading.style.display = 'block';
+        animateStepIn();
+
+        try {
+          const values = await fetchOptions(meta.field);
+          el.loading.style.display = 'none';
+
+          if (!values.length) {
+            el.empty.style.display = 'block';
+            return;
+          }
+
+          values.forEach((value) => {
+            const btn = document.createElement('button');
+            btn.className = 'exgrip-option';
+            btn.textContent = displayValue(meta.field, value);
+            if (selections[meta.field] === value) btn.classList.add('is-selected');
+            btn.addEventListener('click', () => choose(meta.field, value));
+            el.options.appendChild(btn);
+          });
+        } catch (err) {
+          console.error(err);
+          el.loading.style.display = 'none';
+          el.empty.textContent = 'Could not load options. Please try again or contact us.';
+          el.empty.style.display = 'block';
+        }
+      }
+
+      function animateStepIn() {
+        el.step.classList.remove('is-active');
+        // force reflow then re-add for transition
+        void el.step.offsetWidth;
+        el.step.classList.add('is-active');
+      }
+
+      // Choose a value, advance or finish --------------------------------------
+      function choose(field, value) {
+        // truncate any downstream selections if re-choosing
+        const order = resolveStepOrder();
+        const idx = order.indexOf(field);
+        order.slice(idx).forEach((f) => { delete selections[f]; });
+
+        selections[field] = value;
+
+        // if toolType changed, sub-spec field may differ — recompute order
+        stepOrder = resolveStepOrder();
+
+        const isLastField = stepOrder.indexOf(field) === stepOrder.length - 1
+          && field === SUBSPEC[selections.toolType]?.field;
+
+        if (isLastField) {
+          runSearch();
+        } else {
+          stepIndex = stepOrder.indexOf(field) + 1;
+          renderStep();
+        }
+      }
+
+      // Back -------------------------------------------------------------------
+      el.back.addEventListener('click', () => {
+        if (stepIndex === 0) return;
+        stepIndex -= 1;
+        // drop the answer we're returning to so it can be re-picked freely
+        renderStep();
+      });
+
+      // Start over -------------------------------------------------------------
+      el.restart.addEventListener('click', resetFlow);
+
+      function resetFlow() {
+        selections = {};
+        stepIndex = 0;
+        document.getElementById('product-grid-container').innerHTML = '';
+        renderStep();
+        document.getElementById('exgrip-console').scrollIntoView({ behavior: 'smooth' });
+      }
+
+      // Summary chips ----------------------------------------------------------
+      function renderSummary() {
+        el.summary.innerHTML = '';
+        const order = resolveStepOrder();
+        order.forEach((field, i) => {
+          if (i >= stepIndex) return;
+          const value = selections[field];
+          if (value === undefined) return;
+          const chip = document.createElement('button');
+          chip.className = 'exgrip-chip';
+          chip.innerHTML = `${labelFor(field)}: <b>${displayValue(field, value)}</b>`;
+          chip.title = 'Edit';
+          chip.addEventListener('click', () => { stepIndex = i; renderStep(); });
+          el.summary.appendChild(chip);
+        });
+      }
+
+      function labelFor(field) {
+        if (field === 'spindle') return 'Spindle';
+        if (field === 'length') return 'Length';
+        if (field === 'toolType') return 'Tool';
+        const sub = Object.values(SUBSPEC).find((s) => s.field === field);
+        return sub ? sub.label : field;
+      }
+
+      // Final search -> existing /process-data + product grid ------------------
+      function runSearch() {
+        el.progFill.style.width = '100%';
+        document.getElementById('product-grid-container').innerHTML = '';
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('product-grid-container').scrollIntoView({ behavior: 'smooth' });
+
+        searchCombinations(selections).then((response) => {
+          document.getElementById('loading').style.display = 'none';
+          if (response && response.length > 0) {
+            renderProducts(response);
+          } else {
+            el.empty.style.display = 'block';
+          }
+        });
+      }
+
+      // boot
+      renderStep();
+
+      // ── Product Fetching and Display (unchanged from original) ──────────────
+      function fetchProduct(handle) {
+        return fetch(`/products/${handle}.js`)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`Product fetch failed: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then((product) => {
+            console.log('Fetched product:', product);
+            return product;
+          })
+          .catch((error) => {
+            console.error('Error fetching product:', error);
+          });
+      }
+
+      async function renderProducts(productsData) {
+        const container = document.getElementById('product-grid-container');
+        container.innerHTML = '';
+
+        for (const data of productsData) {
+          const productHTML = await createProductHTML(data);
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = productHTML;
+          const productElement = tempDiv.firstElementChild;
+          container.appendChild(productElement);
+
+          const viewerContainer = productElement.querySelector('.three-d-viewer');
+          if (viewerContainer) {
+            const stlPath = viewerContainer.getAttribute('data-stl-path');
+            if (stlPath) {
+              init3DViewer(viewerContainer.id, stlPath);
+            }
+          }
+        }
+      }
+
+      async function createProductHTML(data) {
+        const masterHolderProduct = await fetchProduct(data.productHandleMasterHolder);
+        const extensionAdapterProduct =
+          data.productHandleExtensionAdapter !== 'NA' ? await fetchProduct(data.productHandleExtensionAdapter) : null;
+        const clampingExtensionProduct = await fetchProduct(data.productHandleClampingExtension);
+        const threadedShrinkFitAdapterProduct =
+          data.productHandleThreadedShrinkFitAdapter !== 'NA'
+            ? await fetchProduct(data.productHandleThreadedShrinkFitAdapter)
+            : null;
+
+        console.log('data', data);
+
+        return `
+        <div class="product-grid-item">
+          <div class="product-info-left">
+            <div class="product-info-item">
+              <div class="product-info-title">
+                  Total Length
+              </div>
+              <div class="product-info-value">
+                 ${data.length}mm
+              </div>
+            </div>
+            <div class="product-info-item">
+              <div class="product-info-title">
+                  Tool Type
+              </div>
+              <div class="product-info-value">
+                  ${data.toolType}
+              </div>
+            </div>
+
+            ${getAdditionalInfo(data)}
+
+            <div class="product-info-item">
+                <div class="product-info-title">Download STEP File</div>
+                <div class="product-info-download-btn">
+                    <a href="${data.stepFilePath}" class="download-btn" download>Download</a>
+                </div>
+            </div>
+          </div>
+          <div class="product-info-right">
+            <div class="product-column-container">
+              ${await createProductColumn(masterHolderProduct, data.productSKUMasterHolder, 'EXGRIP Master Holder')}
+              ${
+                data.productHandleExtensionAdapter !== 'NA'
+                  ? await createProductColumn(
+                      extensionAdapterProduct,
+                      data.productSKUExtensionAdapter,
+                      'EXGRIP Extension Adapter'
+                    )
+                  : '<div class="product-column-invisible"></div>'
+              }
+              ${await createProductColumn(
+                clampingExtensionProduct,
+                data.productSKUClampingExtension,
+                'EXGRIP Clamping Extension'
+              )}
+              ${
+                data.productHandleThreadedShrinkFitAdapter !== 'NA'
+                  ? await createProductColumn(
+                      threadedShrinkFitAdapterProduct,
+                      data.productSKUThreadedShrinkFitAdapter,
+                      'Shrink Fit Threaded Adapter'
+                    )
+                  : '<div class="product-column-invisible"></div>'
+              }
+            </div>
+
+            <!-- 3D viewer container -->
+            <div class="three-d-viewer" id="three-d-viewer-${data.id}"
+                 data-stl-path="${data.stlFilePath}">
+            </div>
+          </div>
+        </div>
+      `;
+      }
+
+      async function createProductColumn(product, sku, title) {
+        if (!product) {
+          return '<div class="product-column"></div>';
+        }
+
+        const variant = product.variants.find((v) => v.sku === sku);
+        if (!variant) {
+          console.error(`Variant with SKU ${sku} not found for product ${product.title}`);
+          return '<div class="product-column"></div>';
+        }
+
+        return `
+        <div class="product-column">
+          <h3>${title}</h3>
+          <a href="/products/${product.handle}?variant=${variant.id}" class="product-link" target="_blank">
+            <div class="product-image">
+              <img src="${product.featured_image || 'https://via.placeholder.com/150'}" alt="${product.title}">
+            </div>
+            <p class="product-sku">${sku}</p>
+            <p class="product-sku">${variant.option1} | ${variant.option2} | ${variant.option3}</p>
+            <p class="product-sku">$ ${(parseFloat(variant.price) / 100).toFixed(2)}</p>
+          </a>
+          <form action="/cart/add" method="post" enctype="multipart/form-data" target="_blank">
+            <input type="hidden" name="id" value="${variant.id}">
+            <button type="submit" class="add-to-cart-btn">Add to Cart</button>
+          </form>
+        </div>
+      `;
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.addEventListener('submit', function (event) {
+          if (event.target.matches('.custom-add-to-cart-form')) {
+            event.preventDefault();
+
+            const form = event.target;
+            const formData = new FormData(form);
+            const variantId = formData.get('id');
+
+            fetch('/cart/add.js', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({
+                id: variantId,
+                quantity: 1,
+              }),
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                return fetch('/cart.js');
+              })
+              .then((response) => response.json())
+              .then((cartData) => {
+                const event = new CustomEvent('variant:add', {
+                  detail: {
+                    cart: {
+                      sections: {
+                        'variant-added': cartData,
+                      },
+                      item_count: cartData.item_count,
+                    },
+                  },
+                });
+                document.dispatchEvent(event);
+              })
+              .catch((error) => {
+                console.error('Error adding to cart:', error);
+              });
+          }
+        });
+      });
+
+      function getAdditionalInfo(data) {
+        if (data.thread !== 'NA') {
+          return `
+          <div class="product-info-item">
+            <div class="product-info-title">Thread</div>
+            <div class="product-info-value">M${data.thread}</div>
+          </div>`;
+        }
+
+        if (data.cuttingDiameter !== 'NA') {
+          return `
+          <div class="product-info-item">
+            <div class="product-info-title">Cutting Diameter</div>
+            <div class="product-info-value">${data.cuttingDiameter}mm</div>
+          </div>`;
+        }
+
+        if (data.edgeRadius !== 'NA') {
+          return `
+          <div class="product-info-item">
+            <div class="product-info-title">Edge Radius</div>
+            <div class="product-info-value">${data.edgeRadius}mm</div>
+          </div>`;
+        }
+
+        if (data.boreDiameter !== 'NA') {
+          return `
+          <div class="product-info-item">
+            <div class="product-info-title">Bore Diameter</div>
+            <div class="product-info-value">${data.boreDiameter}mm</div>
+          </div>`;
+        }
+
+        return '';
+      }
+
+      // API — final product search (unchanged) ---------------------------------
+      function searchCombinations(userData) {
+        console.log('user data', userData);
+        const apiUrl = `${API_BASE}/process-data/`;
+        return fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(userData),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`API call failed: ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .catch((error) => {
+            console.error('Error calling API:', error);
+          });
+      }
+    </script>
+  </body>
+</html>
