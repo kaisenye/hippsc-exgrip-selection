@@ -148,14 +148,31 @@
       .exgrip-back[disabled] { opacity: 0; pointer-events: none; }
 
       .exgrip-restart {
-        background: none;
-        border: none;
-        color: var(--muted);
-        font-size: 14px;
+        background: #fff;
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        font-size: 15px;
         cursor: pointer;
-        text-decoration: underline;
+        padding: 12px 28px;
+        border-radius: 8px;
+        transition: border-color 0.15s ease;
       }
-      .exgrip-restart:hover { color: var(--ink); }
+      .exgrip-restart:hover { border-color: var(--ink); }
+
+      /* contact button — right end of the nav row */
+      .exgrip-contact {
+        margin-left: auto;
+        display: inline-block;
+        background: #fff;
+        border: 1px solid var(--line-strong);
+        color: var(--ink);
+        font-size: 15px;
+        text-decoration: none;
+        padding: 12px 28px;
+        border-radius: 8px;
+        transition: border-color 0.15s ease, color 0.15s ease;
+      }
+      .exgrip-contact:hover { border-color: var(--ink); }
 
       /* states */
       .exgrip-empty {
@@ -253,6 +270,7 @@
       <div class="exgrip-nav">
         <button class="exgrip-back" id="exgrip-back" disabled>← Back</button>
         <button class="exgrip-restart" id="exgrip-restart" style="display:none;">Start over</button>
+        <a class="exgrip-contact" href="https://www.hippsc.com/pages/contact" target="_blank" rel="noopener">Contact us</a>
       </div>
 
       {% section 'exgrip-product-display' %}
