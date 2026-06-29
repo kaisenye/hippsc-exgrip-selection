@@ -77,6 +77,16 @@
         flex-wrap: wrap;
         gap: 12px;
       }
+      /* standard step: cards span the full width, evenly split */
+      .exgrip-options.is-standard {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      .exgrip-options.is-standard .exgrip-option {
+        padding: 28px 22px;
+        text-align: center;
+      }
       .exgrip-option {
         padding: 14px 22px;
         background: var(--bg);
@@ -398,6 +408,7 @@
         el.question.textContent = meta.question;
         el.hint.textContent = meta.hint;
         el.options.innerHTML = '';
+        el.options.classList.toggle('is-standard', meta.field === 'standard');
         el.empty.style.display = 'none';
 
         // 'standard' is a client-only step: fixed options with flag icons, no fetch.
