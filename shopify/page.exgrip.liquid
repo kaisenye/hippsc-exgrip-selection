@@ -96,6 +96,27 @@
         color: #fff;
       }
 
+      /* standard step: flag + label + sub, stacked */
+      .exgrip-option .exgrip-flag {
+        font-size: 28px;
+        line-height: 1;
+        display: block;
+        margin-bottom: 8px;
+      }
+      .exgrip-option .exgrip-opt-main {
+        display: block;
+        font-weight: 600;
+      }
+      .exgrip-option .exgrip-opt-sub {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .exgrip-option.is-selected .exgrip-opt-sub {
+        color: rgba(255, 255, 255, 0.8);
+      }
+
       /* navigation */
       .exgrip-nav {
         margin-top: 44px;
@@ -242,8 +263,19 @@
         'EXGRIP Tapered Ball Nose End Mills': { field: 'edgeRadius',   label: 'Edge Radius',      unit: 'mm' },
       };
 
-      // Static step definitions. The 4th (sub-spec) is resolved at runtime from toolType.
+      // Machine standards. `standard` is a CLIENT-ONLY step (not a DB field) — it
+      // just narrows which spindle families are shown. `prefixes` matches spindle
+      // values; `order` sets the grouped display order within that standard.
+      const STANDARDS = [
+        { value: 'German',   label: 'German',   flag: '🇩🇪', sub: 'HSK / SK', prefixes: ['HSK', 'SK'], order: ['HSK', 'SK'] },
+        { value: 'Japanese', label: 'Japanese', flag: '🇯🇵', sub: 'BBT',      prefixes: ['BBT'],        order: ['BBT'] },
+        { value: 'USA',      label: 'USA',      flag: '🇺🇸', sub: 'CAT',      prefixes: ['CAT'],        order: ['CAT'] },
+      ];
+
+      // Static step definitions. `standard` and `spindle` are special-cased in
+      // renderStep; the sub-spec (last) is resolved at runtime from toolType.
       const BASE_STEPS = [
+        { field: 'standard', question: 'Which machine standard?',        hint: 'Pick your tooling standard.' },
         { field: 'spindle',  question: 'Which master holder (spindle)?', hint: 'Select your machine spindle interface.' },
         { field: 'length',   question: 'What overall length?',           hint: 'Tool holder length in millimetres.' },
         { field: 'toolType', question: 'Which tool type?',               hint: 'Pick the cutting tool family.' },
@@ -275,15 +307,41 @@
         };
       }
 
-      // total steps (3 until toolType chosen, then 4)
+      // total steps: standard / spindle / length / toolType / subspec
       function totalSteps() {
-        return selections.toolType ? 4 : 4; // always 4 once flow defined; spindle/length/toolType/subspec
+        return 5;
+      }
+
+      // Sort spindle values grouped by family (all HSK, then SK, then BBT, ...),
+      // numeric within a family. When a standard is chosen, restrict + use its order.
+      function orderSpindles(values) {
+        const std = STANDARDS.find((s) => s.value === selections.standard);
+        const groupOrder = std ? std.order : ['HSK', 'BBT', 'SK', 'CAT'];
+        const allowed = std ? std.prefixes : null;
+
+        const familyOf = (v) => groupOrder.find((p) => v.startsWith(p)) || '~';
+        return values
+          .filter((v) => !allowed || allowed.some((p) => v.startsWith(p)))
+          .sort((a, b) => {
+            const fa = groupOrder.indexOf(familyOf(a));
+            const fb = groupOrder.indexOf(familyOf(b));
+            if (fa !== fb) return fa - fb;
+            // within family: numeric part ascending, then full string
+            const na = parseInt(a.replace(/\D/g, ''), 10);
+            const nb = parseInt(b.replace(/\D/g, ''), 10);
+            if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+            return a.localeCompare(b);
+          });
       }
 
       // pretty value for display (length is already a label; thread shows M-prefix)
       function displayValue(field, value) {
         if (field === 'thread') return 'M' + value;
         if (field === 'length') return value + ' mm';
+        if (field === 'standard') {
+          const s = STANDARDS.find((x) => x.value === value);
+          return s ? `${s.flag} ${s.label}` : value;
+        }
         return value;
       }
 
@@ -341,14 +399,37 @@
         el.hint.textContent = meta.hint;
         el.options.innerHTML = '';
         el.empty.style.display = 'none';
+
+        // 'standard' is a client-only step: fixed options with flag icons, no fetch.
+        if (meta.field === 'standard') {
+          el.loading.style.display = 'none';
+          el.loading.innerHTML = '';
+          STANDARDS.forEach((s) => {
+            const btn = document.createElement('button');
+            btn.className = 'exgrip-option';
+            if (selections.standard === s.value) btn.classList.add('is-selected');
+            btn.innerHTML =
+              `<span class="exgrip-flag">${s.flag}</span>` +
+              `<span class="exgrip-opt-main">${s.label}</span>` +
+              `<span class="exgrip-opt-sub">${s.sub}</span>`;
+            btn.addEventListener('click', () => choose('standard', s.value));
+            el.options.appendChild(btn);
+          });
+          animateStepIn();
+          return;
+        }
+
         showSkeletons();
         animateStepIn();
 
         try {
-          const values = await fetchOptions(meta.field);
+          let values = await fetchOptions(meta.field);
           if (myToken !== renderToken) return; // a newer render superseded this one
           el.loading.style.display = 'none';
           el.loading.innerHTML = '';
+
+          // spindle: restrict to the chosen standard + group by family
+          if (meta.field === 'spindle') values = orderSpindles(values);
 
           if (!values.length) {
             el.empty.style.display = 'block';
@@ -458,6 +539,7 @@
       }
 
       function labelFor(field) {
+        if (field === 'standard') return 'Standard';
         if (field === 'spindle') return 'Spindle';
         if (field === 'length') return 'Length';
         if (field === 'toolType') return 'Tool';
